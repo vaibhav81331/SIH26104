@@ -10,6 +10,22 @@ Impact-based heat-health early warning for Odisha: hourly heat physiology → wa
 
 </div>
 
+## Screenshots
+
+Live dashboard (historical replay as of 2024-06-20):
+
+### Map — ward heat bands
+
+<img src="docs/screenshots/map.png" alt="Map view — Odisha ward heat bands, today 2024-06-20" width="100%">
+
+### Command — Heat Action Plan status
+
+<img src="docs/screenshots/command.png" alt="Command view — district alerts, checklist and audit" width="100%">
+
+### Field view — ASHA advisory in Odia
+
+<img src="docs/screenshots/field.png" alt="Field view — Bhubaneswar Ward 1 advisory in Odia" width="100%">
+
 ---
 
 ## The problem
