@@ -1,0 +1,103 @@
+Good checkpoint while the full build runs. Here's where things stand.
+
+Built and verified:
+
+Data spine — all 5,279 hourly CSVs ingested to partitioned Parquet. 46.2 M rows, 2.0 GB → 351 MB (5.7× compression), zero gaps, the one missing cell-year interpolated and flagged.
+Thermal index engine — Liljegren WBGT (iterative globe + wetted-wick heat balance), real UTCI, NOAA Heat Index, psychrometrics, solar geometry via pvlib.
+37 validation tests passing against NOAA's published chart, official UTCI reference values, Buck/Smithsonian tables, and ISO 7726.
+Docs: README.md, docs/02_DATA_DICTIONARY.md, docs/03_THERMAL_INDICES.md.
+
+Five real bugs the tests caught — four of them mine:
+
+Found	Consequence if shipped
+Beam irradiance unbounded at low sun	WBGT of 87 °C
+Surface albedo 0.4 (should be 0.2 for cropland)	Ground reflection rivalling the direct beam
+50 mm globe + ISO 7726 constant calibrated for 150 mm	Tmrt inflated 1.54×
+Thermal conductivity 22% low → Prandtl 0.93 vs air's 0.70	Globe several degrees too hot, amplified by the 4th-power Tmrt inversion
+Black-globe Tmrt fed into UTCI	Peak Tmrt 95 °C instead of 66 °C; UTCI off-scale
+
+The last one was conceptual, not arithmetic: UTCI is defined for a human (shortwave absorptivity 0.70, projected-area factor 0.13 under high sun), not a black sphere (0.95, 0.25). That's now a separate function with the distinction documented.
+
+Two things I settled by measurement rather than assumption:
+
+The timestamps carry no timezone. Measuring irradiance-weighted solar-noon phase across all 480 cells gave UTC+5 west of 82.75 °E, UTC+6 east of 83.00 °E — a genuine 1-hour discontinuity mid-state — with max residual 10 minutes. Had I assumed UTC, every daily max and night window would have been 5–6 hours wrong. It's now asserted in ingest.
+
+And the headline result, on real 2024 Bhubaneswar data:
+
+	Days > 35 °C WBGT
+Daily inputs → shade formula (the supplied notebook's method)	85 — 23.2%
+Hourly → Liljegren → daily max	14 — 3.8%
+
+The corrected method's peak is higher (39.1 vs 37.3 °C), so this is sharper discrimination, not a cooler model. It's locked in as a regression test.
+
+The full 11-year index build is running now (~50 min) — until it finishes, daily_cell.parquet holds 2024 only. Climatology (percentiles + Excess Heat Factor) and the HTSI composite are written and waiting on it.
+
+Next up once it lands: district crosswalk across the three incompatible keying schemes, NFHS-5 extraction from Odisha.pdf, then the risk model. I'll pick up when the build notifies.
+
+
+Two things — and first a correction worth making: the project isn't complete. M1 and M2 are done (data spine + thermal index engine); M3–M7 are not built yet. Let me check the background build, then answer both.
+
+Ran 2 commands
+
+The build is alive (PID 26616, 1.7 GB RSS — stdout is just buffered). And ushma is installed as an editable package, so imports work without PYTHONPATH. Let me confirm that from outside the project directory.
+
+Verified package works from outside project dir
+
+Confirmed working. Here are both answers.
+
+1. Which stage is the AI model
+
+M5 — Forecast is the only trained machine-learning model in the system. But the reason why it sits there, and not in M4, is the most important design decision in this project, so it's worth being precise:
+
+Stage	Nature	Learned from data?
+M1 Ingest	Deterministic parsing + calibration	No
+M2 Indices	Physics — heat-balance equations	No
+M3 Places	Joins, interpolation, index construction	No
+M4 Risk	Statistics — quasi-Poisson GLM baseline + transferred risk curve	Partly (baseline only)
+M5 Forecast	Machine learning — LightGBM	Yes ← the AI
+M8 Explainability	SHAP over M5	Reads M5
+
+What the AI actually predicts — and why it isn't deaths.
+
+The instinctive design is "train a model to predict heat mortality." That is impossible with this data, and this is the finding from earlier: your mortality file covers 2007–2011, the weather covers 2015–2025. Zero overlapping days. There is no (weather, deaths) pair anywhere in the dataset to learn from. Any team that claims to have trained a mortality model on these two files has either not checked the dates or has leaked something.
+
+So the pipeline splits into a learned half and a transparent half:
+
+ML (trained on nasapower_odisha)          Epidemiology (no training)
+──────────────────────────────────        ──────────────────────────────
+history ──► HTSI forecast D+1…D+5  ────►  baseline × RR × vulnerability
+            + uncertainty bands            ──► expected excess deaths
+
+The ML model forecasts thermal stress, which is exactly what your mandated dataset supports — 46.2 million labelled hourly observations across 480 cells and 11 years. That's a genuine, well-posed supervised problem with real labels and real skill scores.
+
+The conversion from thermal stress to mortality risk is then a deterministic epidemiological transform, every term of which is inspectable — not a black box with "AI" written on it. That separation is defensible to a health department in a way that a single opaque model would not be.
+
+Model spec (M5): LightGBM, one model per horizon D+1…D+5 (direct, not recursive, so errors don't compound), quantile objective τ = 0.1/0.5/0.9 plus split-conformal calibration for honest intervals, temporal split (train 2015–2022, validate 2023, test 2024–25), benchmarked against persistence and climatology baselines. On the live path it also acts as a statistical downscaling layer on top of NWP forecasts, learning the ward-level structure a 27 km grid can't resolve.
+
+2. How to run what exists
+
+The package is already installed editable, so imports work from anywhere. Fresh setup on another machine:
+
+pip install -e ".[dev]"
+
+Run the validation suite — this is the fastest proof the science layer is correct (37 tests, ~40 s):
+
+python -m pytest tests/ -q
+
+Rebuild the hourly panel from the 5,279 CSVs (~11 min, already done — skips completed years unless forced):
+
+python -c "from ushma.ingest.nasapower import ingest; ingest()"
+
+Compute thermal indices and daily aggregates (~50 min for all 11 years — currently running):
+
+python -c "from ushma.indices.pipeline import build_daily; build_daily()"
+
+Try the index engine directly on any conditions:
+
+python -c "from ushma.indices.wbgt import wbgt_liljegren; print(wbgt_liljegren(t_c=42., dewpoint_c=28., wind_ms=1.5, pressure_kpa=100., solar_wm2=950., cos_zenith=0.92, direct_fraction=0.8))"
+
+What you get: data/interim/hourly_grid/ (351 MB Parquet, 46.2 M rows), data/interim/utc_offsets.json (the measured per-cell time calibration), reports/ingest_qc.csv, and data/processed/daily_cell.parquet once the build lands.
+
+There is no dashboard or API to run yet — those are M6. Right now the runnable surface is the pipeline and the test suite.
+
+One thing to flag: the README stage table in your screenshot marks M1 and M2 complete, which is accurate, but the "Verified results" block above it quotes 46.2 M rows ingested — that's the ingest figure, already true. The full daily index build is still in flight, so daily_cell.parquet currently holds 2024 only. I'll update it and continue to M3 when the build notifies.

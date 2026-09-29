@@ -1,0 +1,21 @@
+{
+  "name": "ushma-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "USHMA API: heat-health alerts, Heat Action Plan engine, CAP 1.2, channels and dashboard host.",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "compression": "^1.8.2",
+    "express": "^5.2.1"
+  }
+}

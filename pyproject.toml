@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ushma"
+version = "0.1.0"
+description = "USHMA - Urban System for Heat-stress Monitoring & Alerting. Impact-based heat-health early warning for Odisha."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pyarrow>=14.0",
+    "pvlib>=0.10",
+    "scikit-learn>=1.3",
+    "lightgbm>=4.0",
+    "statsmodels>=0.14",
+    "shap>=0.44",
+    "openpyxl>=3.1",
+    "pdfplumber>=0.10",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "httpx>=0.26",
+    "pulp>=2.7",
+    "matplotlib>=3.7",
+    "plotly>=5.18",
+    "PyYAML>=6.0",
+    "shapely>=2.0",
+]
+
+[project.optional-dependencies]
+geo = ["geopandas>=0.14"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.3"]
+
+[project.scripts]
+ushma = "ushma.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "slow: marks tests that read the full hourly panel",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
